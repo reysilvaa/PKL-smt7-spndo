@@ -83,7 +83,7 @@ Aplikasi akan berjalan di http://127.0.0.1:8000
 
 ## Kompatibilitas dengan Laravel 12
 
-Untuk Laravel 12, ada beberapa perubahan yang perlu diperhatikan:
+Untuk Laravel 12, ada beberapa perubahan signifikan yang perlu diperhatikan:
 
 1. Pastikan PHP >= 8.2
 2. Update dependencies di composer.json:
@@ -96,6 +96,119 @@ composer update
 
 ```bash
 composer require laravel/framework:^12.0 --update-with-dependencies
+```
+
+### Menangani Perubahan Kernel.php di Laravel 12
+
+Laravel 12 menghapus file `app/Http/Kernel.php` dan menggunakan pendekatan yang berbeda untuk middleware. Untuk menyesuaikan aplikasi ini dengan Laravel 12, lakukan langkah-langkah berikut:
+
+1. **Buat file Bootstrap Middleware**
+
+Buat file `bootstrap/middleware.php`:
+
+```php
+<?php
+
+use Illuminate\Foundation\Configuration\Middleware;
+
+return function (Middleware $middleware) {
+    // Global Middleware
+    $middleware->use([
+        // Middleware yang sebelumnya ada di $middleware
+        \App\Http\Middleware\TrustProxies::class,
+        \Illuminate\Http\Middleware\HandleCors::class,
+        \App\Http\Middleware\PreventRequestsDuringMaintenance::class,
+        \Illuminate\Foundation\Http\Middleware\ValidatePostSize::class,
+        \App\Http\Middleware\TrimStrings::class,
+        \Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull::class,
+    ]);
+
+    // Web Middleware
+    $middleware->web([
+        // Middleware yang sebelumnya ada di $middlewareGroups['web']
+        \App\Http\Middleware\EncryptCookies::class,
+        \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+        \Illuminate\Session\Middleware\StartSession::class,
+        \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+        \App\Http\Middleware\VerifyCsrfToken::class,
+        \Illuminate\Routing\Middleware\SubstituteBindings::class,
+    ]);
+
+    // API Middleware
+    $middleware->api([
+        \Illuminate\Routing\Middleware\ThrottleRequests::class.':api',
+        \Illuminate\Routing\Middleware\SubstituteBindings::class,
+    ]);
+
+    // Named Middleware
+    $middleware->alias([
+        'admin' => \App\Http\Middleware\AdminMiddleware::class,
+        'auth' => \Illuminate\Auth\Middleware\Authenticate::class,
+        'auth.basic' => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,
+        'auth.session' => \Illuminate\Session\Middleware\AuthenticateSession::class,
+        'cache.headers' => \Illuminate\Http\Middleware\SetCacheHeaders::class,
+        'can' => \Illuminate\Auth\Middleware\Authorize::class,
+        'guest' => \App\Http\Middleware\RedirectIfAuthenticated::class,
+        'password.confirm' => \Illuminate\Auth\Middleware\RequirePassword::class,
+        'precognitive' => \Illuminate\Foundation\Http\Middleware\HandlePrecognitiveRequests::class,
+        'signed' => \App\Http\Middleware\ValidateSignature::class,
+        'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
+        'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
+    ]);
+    
+    return $middleware;
+};
+```
+
+2. **Buat file Bootstrap Routes**
+
+Buat file `bootstrap/routes.php`:
+
+```php
+<?php
+
+use Illuminate\Foundation\Configuration\Middleware;
+
+return function (\Illuminate\Routing\Router $router, Middleware $middleware) {
+    $router->middlewareGroup('web', $middleware->getWebMiddleware());
+    $router->middlewareGroup('api', $middleware->getApiMiddleware());
+    
+    collect($middleware->getAliases())->each(function ($middleware, $alias) use ($router) {
+        $router->aliasMiddleware($alias, $middleware);
+    });
+    
+    return $router;
+};
+```
+
+3. **Perbarui Reference Middleware di Route**
+
+Jika Anda menggunakan `$this->middleware()` dalam controller, Anda perlu menggantinya dengan atribut PHP 8 atau mendaftarkannya di `routes/web.php`:
+
+```php
+// Contoh menggunakan route middleware dalam route/web.php
+Route::get('/dashboard', [AuthController::class, 'dashboard'])
+    ->middleware('auth')
+    ->name('dashboard');
+```
+
+4. **Periksa dan Sesuaikan Provider**
+
+Periksa service provider Anda untuk melihat apakah ada referensi ke Kernel.php:
+
+```bash
+php artisan app:provider-list
+```
+
+Sesuaikan provider yang menggunakan referensi ke Kernel dengan pendekatan baru.
+
+5. **Jalankan Perintah Artisan untuk Validasi**
+
+```bash
+php artisan route:list
+php artisan config:clear
+php artisan view:clear
+php artisan cache:clear
 ```
 
 4. Periksa perubahan struktur DB dan route jika ada:
@@ -165,7 +278,10 @@ chmod -R 775 storage bootstrap/cache
 
 3. Jika ada masalah dengan seeder, pastikan data di seeder sesuai dengan struktur tabel.
 
-4. Untuk Laravel 12, jika ada perubahan API, sesuaikan kode yang menggunakan API tersebut.
+4. Untuk Laravel 12, jika menemui error terkait middleware:
+   - Pastikan file `bootstrap/middleware.php` dan `bootstrap/routes.php` sudah dibuat
+   - Periksa bahwa semua middleware yang digunakan telah didaftarkan dengan benar
+   - Gunakan `php artisan route:list` untuk memverifikasi bahwa middleware sudah terdaftar
 
 ## Lisensi
 
